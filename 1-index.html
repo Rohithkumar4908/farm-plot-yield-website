@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Farm Plot Yield Comparison System</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; }
+  body { background: #f0f7f0; color: #223; min-height: 100vh; }
+  header { background: linear-gradient(135deg, #1b5e20, #43a047); color: #fff; padding: 28px 16px; text-align: center; }
+  header h1 { font-size: 1.5rem; letter-spacing: .5px; }
+  header p { margin-top: 6px; font-size: .85rem; opacity: .9; }
+  main { max-width: 860px; margin: 0 auto; padding: 16px; }
+  .card { background: #fff; border-radius: 12px; padding: 18px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+  .card h2 { font-size: 1.05rem; color: #1b5e20; margin-bottom: 12px; }
+  label { font-size: .85rem; color: #444; display: block; margin-bottom: 4px; }
+  input[type=number], input[type=text] { width: 100%; padding: 9px 10px; border: 1px solid #c8d6c8; border-radius: 8px; font-size: .95rem; margin-bottom: 10px; }
+  input:focus { outline: 2px solid #43a047; border-color: transparent; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 120px; }
+  button { background: #2e7d32; color: #fff; border: none; border-radius: 8px; padding: 10px 18px; font-size: .95rem; cursor: pointer; margin: 4px 6px 4px 0; }
+  button:hover { background: #1b5e20; }
+  button.secondary { background: #fff; color: #2e7d32; border: 1px solid #2e7d32; }
+  button.secondary:hover { background: #e8f5e9; }
+  .plot-block { border: 1px solid #dfe9df; border-radius: 10px; padding: 14px; margin-bottom: 14px; background: #fbfefb; }
+  .plot-block h3 { font-size: .95rem; color: #2e7d32; margin-bottom: 10px; }
+  .period-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; margin-top: 8px; }
+  th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid #e3ede3; }
+  th { background: #e8f5e9; color: #1b5e20; }
+  .table-wrap { overflow-x: auto; }
+  .best { background: #fff8e1; border-left: 4px solid #f9a825; padding: 12px 14px; border-radius: 8px; margin: 10px 0; font-weight: 600; }
+  .note-good { color: #2e7d32; font-weight: 600; }
+  .note-bad { color: #c62828; font-weight: 600; }
+  .msg { padding: 10px 14px; border-radius: 8px; margin-top: 10px; font-size: .9rem; display: none; }
+  .msg.ok { display: block; background: #e8f5e9; color: #1b5e20; }
+  .msg.err { display: block; background: #ffebee; color: #c62828; }
+  .hidden { display: none; }
+  ol.rank { margin: 8px 0 8px 22px; }
+  ol.rank li { margin-bottom: 6px; }
+  footer { text-align: center; padding: 18px; font-size: .8rem; color: #789; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Farm Plot Yield Comparison System</h1>
+  <p>Record crop yield and irrigation per plot, compare plots and find the best one.</p>
+</header>
+<main>
+  <div class="card">
+    <h2>1. Setup</h2>
+    <div class="row">
+      <div>
+        <label for="plotCount">Number of plots (1-10)</label>
+        <input type="number" id="plotCount" min="1" max="10" value="3">
+      </div>
+      <div>
+        <label for="periodCount">Number of periods (1-6)</label>
+        <input type="number" id="periodCount" min="1" max="6" value="4">
+      </div>
+    </div>
+    <button onclick="buildForm()">Create entry form</button>
+    <button class="secondary" onclick="loadSample()">Load sample data</button>
+    <div id="setupMsg" class="msg"></div>
+  </div>
+
+  <div id="entryCard" class="card hidden">
+    <h2>2. Enter plot data</h2>
+    <div id="plotForms"></div>
+    <button onclick="calculate()">Calculate</button>
+    <div id="entryMsg" class="msg"></div>
+  </div>
+
+  <div id="resultsCard" class="card hidden">
+    <h2>3. Results</h2>
+    <button onclick="showTable()">Yield table</button>
+    <button onclick="compare()">Compare plots / best plot</button>
+    <button onclick="irrigationSummary()">Irrigation and yield summary</button>
+    <button class="secondary" onclick="saveRecords()">Save records</button>
+    <button class="secondary" onclick="loadRecords()">Load saved records</button>
+    <div id="saveMsg" class="msg"></div>
+    <div id="results"></div>
+  </div>
+</main>
+<footer>Web interface for the C project: structures, arrays, loops, functions and file handling (save/load in browser storage).</footer>
+
+<script>
+/* ===== Core logic: same formulas as the C program ===== */
+var MAX_PLOTS = 10, MAX_PERIODS = 6;
+var plots = [];
+var periodCount = 0;
+
+function calculatePlots(list, periods) {
+  for (var i = 0; i < list.length; i++) {
+    var total = 0, totalWater = 0;
+    for (var j = 0; j < periods; j++) {
+      total += list[i].yield[j];
+      totalWater += list[i].water[j];
+    }
+    list[i].total = total;
+    list[i].totalWater = totalWater;
+    list[i].average = periods ? total / periods : 0;
+  }
+  return list;
+}
+
+function bestPlotIndex(list) {
+  var best = 0;
+  for (var i = 1; i < list.length; i++)
+    if (list[i].total > list[best].total) best = i;
+  return best;
+}
+
+function rankIndexes(list) {
+  var idx = list.map(function(_, i) { return i; });
+  idx.sort(function(a, b) { return list[b].total - list[a].total; });
+  return idx;
+}
+
+function efficiency(p) {
+  return p.totalWater > 0 ? p.total * 100 / p.totalWater : 0;
+}
+
+function fmt(n, d) { return n.toFixed(d === undefined ? 1 : d); }
+
+/* ===== Page code (browser only) ===== */
+if (typeof document !== 'undefined') {
+
+function showMsg(id, text, ok) {
+  var el = document.getElementById(id);
+  el.textContent = text;
+  el.className = 'msg ' + (ok ? 'ok' : 'err');
+}
+
+function buildForm() {
+  var n = parseInt(document.getElementById('plotCount').value, 10);
+  var p = parseInt(document.getElementById('periodCount').value, 10);
+  if (!n || !p || n < 1 || n > MAX_PLOTS || p < 1 || p > MAX_PERIODS) {
+    showMsg('setupMsg', 'Invalid numbers: plots 1-10, periods 1-6.', false);
+    return;
+  }
+  periodCount = p;
+  var html = '';
+  for (var i = 0; i < n; i++) {
+    html += '<div class="plot-block"><h3>Plot ' + (i + 1) + '</h3>';
+    html += '<label>Crop name</label><input type="text" id="crop' + i + '" maxlength="29" placeholder="e.g. Rice">';
+    html += '<div class="period-grid">';
+    for (var j = 0; j < p; j++) {
+      html += '<div><label>Period ' + (j + 1) + ' yield (kg)</label>' +
+              '<input type="number" step="any" min="0" id="y' + i + '_' + j + '">' +
+              '<label>Period ' + (j + 1) + ' water (litres)</label>' +
+              '<input type="number" step="any" min="0" id="w' + i + '_' + j + '"></div>';
+    }
+    html += '</div></div>';
+  }
+  document.getElementById('plotForms').innerHTML = html;
+  document.getElementById('entryCard').classList.remove('hidden');
+  document.getElementById('resultsCard').classList.add('hidden');
+  showMsg('setupMsg', 'Form ready for ' + n + ' plots and ' + p + ' periods.', true);
+  document.getElementById('entryCard').scrollIntoView({behavior: 'smooth'});
+}
+
+function readForm() {
+  var n = parseInt(document.getElementById('plotCount').value, 10);
+  var list = [];
+  for (var i = 0; i < n; i++) {
+    var crop = document.getElementById('crop' + i).value.trim() || ('Plot' + (i + 1));
+    var y = [], w = [];
+    for (var j = 0; j < periodCount; j++) {
+      var yv = parseFloat(document.getElementById('y' + i + '_' + j).value);
+      var wv = parseFloat(document.getElementById('w' + i + '_' + j).value);
+      if (isNaN(yv) || isNaN(wv) || yv < 0 || wv < 0) return null;
+      y.push(yv); w.push(wv);
+    }
+    list.push({plotNo: i + 1, crop: crop, yield: y, water: w});
+  }
+  return list;
+}
+
+function calculate() {
+  var list = readForm();
+  if (!list) { showMsg('entryMsg', 'Please fill every yield and water value (0 or more).', false); return; }
+  plots = calculatePlots(list, periodCount);
+  document.getElementById('resultsCard').classList.remove('hidden');
+  document.getElementById('results').innerHTML = '';
+  showMsg('entryMsg', 'Data entered. Use the result buttons below.', true);
+  showTable();
+  document.getElementById('resultsCard').scrollIntoView({behavior: 'smooth'});
+}
+
+function showTable() {
+  if (!plots.length) return;
+  var html = '<h2>Yield table (kg)</h2><div class="table-wrap"><table><tr><th>Plot</th><th>Crop</th>';
+  for (var j = 0; j < periodCount; j++) html += '<th>P' + (j + 1) + '</th>';
+  html += '<th>Total</th><th>Average</th></tr>';
+  for (var i = 0; i < plots.length; i++) {
+    html += '<tr><td>' + plots[i].plotNo + '</td><td>' + escapeHtml(plots[i].crop) + '</td>';
+    for (var j = 0; j < periodCount; j++) html += '<td>' + fmt(plots[i].yield[j]) + '</td>';
+    html += '<td>' + fmt(plots[i].total) + '</td><td>' + fmt(plots[i].average) + '</td></tr>';
+  }
+  html += '</table></div>';
+  document.getElementById('results').innerHTML = html;
+}
+
+function compare() {
+  if (!plots.length) return;
+  var best = bestPlotIndex(plots);
+  var rank = rankIndexes(plots);
+  var html = '<h2>Plot comparison (highest total first)</h2><ol class="rank">';
+  for (var r = 0; r < rank.length; r++) {
+    var p = plots[rank[r]];
+    html += '<li>Plot ' + p.plotNo + ' (' + escapeHtml(p.crop) + '): total ' + fmt(p.total) +
+            ' kg, average ' + fmt(p.average) + ' kg</li>';
+  }
+  html += '</ol>';
+  html += '<div class="best">Best plot: Plot ' + plots[best].plotNo + ' (' + escapeHtml(plots[best].crop) +
+          ') with ' + fmt(plots[best].total) + ' kg</div>';
+  for (var i = 0; i < plots.length; i++) {
+    if (i !== best) html += '<p>Plot ' + plots[i].plotNo + ' is ' + fmt(plots[best].total - plots[i].total) +
+                            ' kg below the best plot.</p>';
+  }
+  document.getElementById('results').innerHTML = html;
+}
+
+function irrigationSummary() {
+  if (!plots.length) return;
+  var sum = 0;
+  for (var i = 0; i < plots.length; i++) sum += plots[i].total;
+  var html = '<h2>Irrigation and yield summary</h2><div class="table-wrap"><table>' +
+             '<tr><th>Plot</th><th>Crop</th><th>Water (L)</th><th>Yield (kg)</th><th>kg per 100 L</th><th>Note</th></tr>';
+  for (var i = 0; i < plots.length; i++) {
+    var eff = efficiency(plots[i]);
+    var good = eff >= 5;
+    html += '<tr><td>' + plots[i].plotNo + '</td><td>' + escapeHtml(plots[i].crop) + '</td><td>' +
+            fmt(plots[i].totalWater, 0) + '</td><td>' + fmt(plots[i].total) + '</td><td>' + fmt(eff, 2) +
+            '</td><td class="' + (good ? 'note-good' : 'note-bad') + '">' +
+            (good ? 'Good water use' : 'Reduce water / improve care') + '</td></tr>';
+  }
+  html += '</table></div><p style="margin-top:10px"><b>Overall yield of all plots: ' + fmt(sum) + ' kg</b></p>';
+  document.getElementById('results').innerHTML = html;
+}
+
+function saveRecords() {
+  if (!plots.length) return;
+  try {
+    localStorage.setItem('farm_records', JSON.stringify({plots: plots, periodCount: periodCount}));
+    showMsg('saveMsg', 'Records saved in this browser.', true);
+  } catch (e) {
+    showMsg('saveMsg', 'Could not save in this browser.', false);
+  }
+}
+
+function loadRecords() {
+  var raw = localStorage.getItem('farm_records');
+  if (!raw) { showMsg('saveMsg', 'No saved records found.', false); return; }
+  try {
+    var data = JSON.parse(raw);
+    plots = calculatePlots(data.plots, data.periodCount);
+    periodCount = data.periodCount;
+    document.getElementById('resultsCard').classList.remove('hidden');
+    showMsg('saveMsg', 'Loaded ' + plots.length + ' plots, ' + periodCount + ' periods.', true);
+    showTable();
+  } catch (e) {
+    showMsg('saveMsg', 'Saved data is damaged.', false);
+  }
+}
+
+function loadSample() {
+  document.getElementById('plotCount').value = 3;
+  document.getElementById('periodCount').value = 4;
+  buildForm();
+  var sample = [
+    {crop: 'Wheat', yield: [550, 580, 560, 590], water: [15000, 15000, 15000, 15000]},
+    {crop: 'Rice',  yield: [600, 650, 610, 650], water: [9000, 9000, 9000, 9000]},
+    {crop: 'Maize', yield: [480, 500, 520, 490], water: [12000, 12000, 12000, 12000]}
+  ];
+  for (var i = 0; i < sample.length; i++) {
+    document.getElementById('crop' + i).value = sample[i].crop;
+    for (var j = 0; j < 4; j++) {
+      document.getElementById('y' + i + '_' + j).value = sample[i].yield[j];
+      document.getElementById('w' + i + '_' + j).value = sample[i].water[j];
+    }
+  }
+  calculate();
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, function(c) {
+    return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+  });
+}
+
+}
+</script>
+</body>
+</html>
